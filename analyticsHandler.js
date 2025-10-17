@@ -8,6 +8,8 @@ import { executeRawQuery } from './database.js';
 export async function getNombresMasBuscados(limit = 10) {
   try {
     const limitNum = parseInt(limit) || 10;
+    
+    // Query con LIMIT para resultados paginados
     const query = `
       SELECT 
         nombre_profesor,
@@ -22,12 +24,24 @@ export async function getNombresMasBuscados(limit = 10) {
       LIMIT ?
     `;
     
-    const results = await executeRawQuery(query, [limitNum]);
+    // Query para obtener el total real de registros (sin LIMIT)
+    const countQuery = `
+      SELECT COUNT(DISTINCT nombre_profesor) as total_real
+      FROM consultas_log
+      WHERE nombre_profesor IS NOT NULL
+        AND nombre_profesor != ''
+    `;
+    
+    const [results, countResults] = await Promise.all([
+      executeRawQuery(query, [limitNum]),
+      executeRawQuery(countQuery)
+    ]);
     
     return {
       success: true,
       data: results,
       total: results.length,
+      totalReal: countResults[0].total_real,
       limit: limit
     };
   } catch (error) {
@@ -47,6 +61,8 @@ export async function getNombresMasBuscados(limit = 10) {
 export async function getProfesoresMasClickeados(limit = 10) {
   try {
     const limitNum = parseInt(limit) || 10;
+    
+    // Query con LIMIT para resultados paginados
     const query = `
       SELECT 
         nombre_profesor,
@@ -65,7 +81,35 @@ export async function getProfesoresMasClickeados(limit = 10) {
       LIMIT ?
     `;
     
-    const results = await executeRawQuery(query, [limitNum]);
+    // Query para obtener el total real de combinaciones únicas (sin LIMIT)
+    const countQuery = `
+      SELECT COUNT(*) as total_real
+      FROM (
+        SELECT nombre_profesor, sujeto_obligado, entidad_federativa
+        FROM profesor_vistas
+        WHERE nombre_profesor IS NOT NULL
+          AND nombre_profesor != ''
+        GROUP BY nombre_profesor, sujeto_obligado, entidad_federativa
+      ) as unique_professors
+    `;
+    
+    // Query para obtener el total acumulado de vistas de todos los profesores
+    const totalVistasQuery = `
+      SELECT SUM(total_vistas) as total_vistas_acumuladas
+      FROM (
+        SELECT COUNT(*) as total_vistas
+        FROM profesor_vistas
+        WHERE nombre_profesor IS NOT NULL
+          AND nombre_profesor != ''
+        GROUP BY nombre_profesor, sujeto_obligado, entidad_federativa
+      ) as vistas_por_profesor
+    `;
+    
+    const [results, countResults, totalVistasResults] = await Promise.all([
+      executeRawQuery(query, [limitNum]),
+      executeRawQuery(countQuery),
+      executeRawQuery(totalVistasQuery)
+    ]);
     
     // Formatear los resultados
     const formattedResults = results.map(row => ({
@@ -83,6 +127,8 @@ export async function getProfesoresMasClickeados(limit = 10) {
       success: true,
       data: formattedResults,
       total: formattedResults.length,
+      totalReal: countResults[0].total_real,
+      totalVistasAcumuladas: totalVistasResults[0].total_vistas_acumuladas || 0,
       limit: limit
     };
   } catch (error) {
@@ -102,6 +148,8 @@ export async function getProfesoresMasClickeados(limit = 10) {
 export async function getProfesoresTopSueldoAcumulado(limit = 10) {
   try {
     const limitNum = parseInt(limit) || 10;
+    
+    // Query con LIMIT para resultados paginados
     const query = `
       SELECT 
         nombre_profesor,
@@ -121,7 +169,37 @@ export async function getProfesoresTopSueldoAcumulado(limit = 10) {
       LIMIT ?
     `;
     
-    const results = await executeRawQuery(query, [limitNum]);
+    // Query para obtener el total real de profesores con sueldo > 0 (sin LIMIT)
+    const countQuery = `
+      SELECT COUNT(*) as total_real
+      FROM (
+        SELECT nombre_profesor, sujeto_obligado, entidad_federativa
+        FROM profesor_vistas
+        WHERE nombre_profesor IS NOT NULL
+          AND nombre_profesor != ''
+          AND sueldo_acumulado > 0
+        GROUP BY nombre_profesor, sujeto_obligado, entidad_federativa
+      ) as unique_professors
+    `;
+    
+    // Query para obtener el total acumulado de vistas de profesores con sueldo > 0
+    const totalVistasQuery = `
+      SELECT SUM(total_vistas) as total_vistas_acumuladas
+      FROM (
+        SELECT COUNT(*) as total_vistas
+        FROM profesor_vistas
+        WHERE nombre_profesor IS NOT NULL
+          AND nombre_profesor != ''
+          AND sueldo_acumulado > 0
+        GROUP BY nombre_profesor, sujeto_obligado, entidad_federativa
+      ) as vistas_por_profesor
+    `;
+    
+    const [results, countResults, totalVistasResults] = await Promise.all([
+      executeRawQuery(query, [limitNum]),
+      executeRawQuery(countQuery),
+      executeRawQuery(totalVistasQuery)
+    ]);
     
     // Formatear los resultados
     const formattedResults = results.map(row => ({
@@ -139,6 +217,8 @@ export async function getProfesoresTopSueldoAcumulado(limit = 10) {
       success: true,
       data: formattedResults,
       total: formattedResults.length,
+      totalReal: countResults[0].total_real,
+      totalVistasAcumuladas: totalVistasResults[0].total_vistas_acumuladas || 0,
       limit: limit,
       tipo: 'mayores'
     };
@@ -159,6 +239,8 @@ export async function getProfesoresTopSueldoAcumulado(limit = 10) {
 export async function getProfesoresBottomSueldoAcumulado(limit = 10) {
   try {
     const limitNum = parseInt(limit) || 10;
+    
+    // Query con LIMIT para resultados paginados
     const query = `
       SELECT 
         nombre_profesor,
@@ -178,7 +260,37 @@ export async function getProfesoresBottomSueldoAcumulado(limit = 10) {
       LIMIT ?
     `;
     
-    const results = await executeRawQuery(query, [limitNum]);
+    // Query para obtener el total real de profesores con sueldo > 0 (sin LIMIT)
+    const countQuery = `
+      SELECT COUNT(*) as total_real
+      FROM (
+        SELECT nombre_profesor, sujeto_obligado, entidad_federativa
+        FROM profesor_vistas
+        WHERE nombre_profesor IS NOT NULL
+          AND nombre_profesor != ''
+          AND sueldo_acumulado > 0
+        GROUP BY nombre_profesor, sujeto_obligado, entidad_federativa
+      ) as unique_professors
+    `;
+    
+    // Query para obtener el total acumulado de vistas de profesores con sueldo > 0
+    const totalVistasQuery = `
+      SELECT SUM(total_vistas) as total_vistas_acumuladas
+      FROM (
+        SELECT COUNT(*) as total_vistas
+        FROM profesor_vistas
+        WHERE nombre_profesor IS NOT NULL
+          AND nombre_profesor != ''
+          AND sueldo_acumulado > 0
+        GROUP BY nombre_profesor, sujeto_obligado, entidad_federativa
+      ) as vistas_por_profesor
+    `;
+    
+    const [results, countResults, totalVistasResults] = await Promise.all([
+      executeRawQuery(query, [limitNum]),
+      executeRawQuery(countQuery),
+      executeRawQuery(totalVistasQuery)
+    ]);
     
     // Formatear los resultados
     const formattedResults = results.map(row => ({
@@ -196,6 +308,8 @@ export async function getProfesoresBottomSueldoAcumulado(limit = 10) {
       success: true,
       data: formattedResults,
       total: formattedResults.length,
+      totalReal: countResults[0].total_real,
+      totalVistasAcumuladas: totalVistasResults[0].total_vistas_acumuladas || 0,
       limit: limit,
       tipo: 'menores'
     };
