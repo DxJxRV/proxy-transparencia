@@ -111,14 +111,17 @@ El servidor implementa un sistema de seguimiento de sesión mediante cookies:
 
 ```
 mini-proxy-transparencia/
-├── server.js              # Configuración de Express y servidor
-├── consultaHandler.js     # Lógica de procesamiento de consultas (sin logging DB)
-├── database.js           # Configuración y funciones de base de datos
-├── loggerMiddleware.js   # Middleware centralizado (logging, sesión, DB)
+├── server.js                      # Configuración de Express y servidor
+├── consultaHandler.js             # Lógica de procesamiento de consultas (sin logging DB)
+├── analyticsHandler.js            # Lógica de endpoints de analytics/estadísticas
+├── database.js                    # Configuración y funciones de base de datos
+├── loggerMiddleware.js            # Middleware centralizado (logging, sesión, DB)
 ├── package.json
-├── .env                  # Variables de entorno (no incluido en git)
-├── .env.example         # Ejemplo de variables de entorno
-└── README.md
+├── .env                           # Variables de entorno (no incluido en git)
+├── .env.example                   # Ejemplo de variables de entorno
+├── README.md                      # Documentación principal
+├── GUIA_ANALYTICS_FRONTEND.md     # Guía completa de endpoints de analytics
+└── EJEMPLOS_API.md                # Ejemplos de uso de la API
 ```
 
 ### 📝 Arquitectura de logging
@@ -207,6 +210,41 @@ Registra una vista de la card de un profesor. Útil para analytics y seguimiento
   "message": "Vista registrada correctamente"
 }
 ```
+
+---
+
+### 📊 Endpoints de Analytics
+
+Los endpoints de analytics proporcionan estadísticas y rankings basados en los datos registrados. **Ver documentación completa en:** [`GUIA_ANALYTICS_FRONTEND.md`](./GUIA_ANALYTICS_FRONTEND.md)
+
+#### GET `/api/analytics/nombres-mas-buscados`
+Obtiene ranking de nombres más buscados.
+- **Query params:** `?limit=10` (opcional)
+- **Retorna:** Lista ordenada por número de búsquedas
+
+#### GET `/api/analytics/profesores-mas-clickeados`
+Obtiene ranking de profesores con más vistas en sus cards.
+- **Query params:** `?limit=10` (opcional)
+- **Retorna:** Lista ordenada por número de vistas
+
+#### GET `/api/analytics/top-sueldos`
+Obtiene profesores con mayores sueldos acumulados.
+- **Query params:** `?limit=10` (opcional)
+- **Retorna:** Lista ordenada descendente por sueldo acumulado
+
+#### GET `/api/analytics/bottom-sueldos`
+Obtiene profesores con menores sueldos acumulados (excluyendo $0).
+- **Query params:** `?limit=10` (opcional)
+- **Retorna:** Lista ordenada ascendente por sueldo acumulado
+
+#### GET `/api/analytics/estadisticas-generales`
+Obtiene métricas generales del sistema.
+- **Query params:** Ninguno
+- **Retorna:** Totales y actividad de últimas 24 horas
+
+**📖 Documentación completa con ejemplos de código:** Ver [`GUIA_ANALYTICS_FRONTEND.md`](./GUIA_ANALYTICS_FRONTEND.md)
+
+---
 
 ## 🔒 Cierre graceful
 

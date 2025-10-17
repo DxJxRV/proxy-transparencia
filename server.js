@@ -4,6 +4,13 @@ import dotenv from "dotenv";
 import { handleConsulta, handleProfesorVista } from "./consultaHandler.js";
 import { initDatabase, closeDatabase } from "./database.js";
 import { loggerMiddleware } from "./loggerMiddleware.js";
+import { 
+  getNombresMasBuscados, 
+  getProfesoresMasClickeados, 
+  getProfesoresTopSueldoAcumulado,
+  getProfesoresBottomSueldoAcumulado,
+  getEstadisticasGenerales
+} from "./analyticsHandler.js";
 
 dotenv.config();
 
@@ -74,6 +81,109 @@ app.post("/api/profesor-vista", async (req, res) => {
     });
   }
 });
+
+// ==================== ENDPOINTS DE ANALYTICS ====================
+
+// Endpoint: Nombres más buscados
+app.get("/api/analytics/nombres-mas-buscados", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const limit = parseInt(req.query.limit) || 10;
+  
+  console.log(`[${timestamp}] 📊 Solicitando nombres más buscados (limit: ${limit})`);
+  
+  try {
+    const result = await getNombresMasBuscados(limit);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR en analytics:`, err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Error al obtener estadísticas", 
+      detail: String(err) 
+    });
+  }
+});
+
+// Endpoint: Profesores más clickeados
+app.get("/api/analytics/profesores-mas-clickeados", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const limit = parseInt(req.query.limit) || 10;
+  
+  console.log(`[${timestamp}] 📊 Solicitando profesores más clickeados (limit: ${limit})`);
+  
+  try {
+    const result = await getProfesoresMasClickeados(limit);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR en analytics:`, err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Error al obtener estadísticas", 
+      detail: String(err) 
+    });
+  }
+});
+
+// Endpoint: Top profesores por sueldo acumulado (mayores)
+app.get("/api/analytics/top-sueldos", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const limit = parseInt(req.query.limit) || 10;
+  
+  console.log(`[${timestamp}] 📊 Solicitando top sueldos acumulados (limit: ${limit})`);
+  
+  try {
+    const result = await getProfesoresTopSueldoAcumulado(limit);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR en analytics:`, err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Error al obtener estadísticas", 
+      detail: String(err) 
+    });
+  }
+});
+
+// Endpoint: Bottom profesores por sueldo acumulado (menores, excluyendo 0)
+app.get("/api/analytics/bottom-sueldos", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const limit = parseInt(req.query.limit) || 10;
+  
+  console.log(`[${timestamp}] 📊 Solicitando bottom sueldos acumulados (limit: ${limit})`);
+  
+  try {
+    const result = await getProfesoresBottomSueldoAcumulado(limit);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR en analytics:`, err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Error al obtener estadísticas", 
+      detail: String(err) 
+    });
+  }
+});
+
+// Endpoint: Estadísticas generales del sistema
+app.get("/api/analytics/estadisticas-generales", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  
+  console.log(`[${timestamp}] 📊 Solicitando estadísticas generales`);
+  
+  try {
+    const result = await getEstadisticasGenerales();
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR en analytics:`, err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Error al obtener estadísticas", 
+      detail: String(err) 
+    });
+  }
+});
+
+// ==================== FIN ENDPOINTS DE ANALYTICS ====================
 
 // Inicializar la base de datos y arrancar el servidor
 async function startServer() {

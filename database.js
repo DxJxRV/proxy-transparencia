@@ -173,6 +173,19 @@ export async function executeQuery(query, params = []) {
 }
 
 /**
+ * Ejecuta una query sin prepared statements (para queries con LIMIT dinámico)
+ */
+export async function executeRawQuery(query, params = []) {
+  try {
+    const [results] = await pool.query(query, params);
+    return results;
+  } catch (error) {
+    console.error('❌ Error al ejecutar query:', error);
+    throw error;
+  }
+}
+
+/**
  * Registra una consulta en el log
  */
 export async function logConsulta(sid, nombreProfesor, entidadFederativa, totalRegistros, registrosFiltrados, duracionMs, ipAddress, userAgent) {
