@@ -278,6 +278,33 @@ async function createTables() {
     `);
 
     console.log('✅ Tablas creadas/verificadas exitosamente');
+
+    // Verificar y agregar columna button_color si no existe
+    try {
+      const [columns] = await pool.query(`
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'utm_configs'
+        AND COLUMN_NAME = 'button_color'
+      `);
+
+      if (columns.length === 0) {
+        console.log('🔄 Agregando columna button_color a utm_configs...');
+        await pool.query(`
+          ALTER TABLE utm_configs
+          ADD COLUMN button_color VARCHAR(20) DEFAULT NULL COMMENT 'Color personalizado del botón (hex, ej: #6366f1)'
+          AFTER text_color
+        `);
+        console.log('✅ Columna button_color agregada exitosamente');
+      } else {
+        console.log('✅ Columna button_color ya existe');
+      }
+    } catch (error) {
+      console.error('⚠️ Error al verificar/agregar columna button_color:', error);
+      // No lanzar error para no interrumpir la inicialización
+    }
+
   } catch (error) {
     console.error('❌ Error al crear las tablas:', error);
     throw error;
@@ -502,8 +529,8 @@ export async function createUtmConfig(config) {
     const result = await executeQuery(
       `INSERT INTO utm_configs
        (utm_key, title, subtitle, button_text, suggested_name, suggested_professor_id,
-        special_message, background_color, text_color, image_url, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        special_message, background_color, text_color, button_color, image_url, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         config.utmKey,
         config.title,
@@ -514,6 +541,7 @@ export async function createUtmConfig(config) {
         config.specialMessage || null,
         config.backgroundColor || null,
         config.textColor || null,
+        config.buttonColor || null,
         config.imageUrl || null,
         config.isActive !== undefined ? config.isActive : true
       ]
@@ -534,7 +562,7 @@ export async function updateUtmConfig(id, config) {
       `UPDATE utm_configs SET
        title = ?, subtitle = ?, button_text = ?, suggested_name = ?,
        suggested_professor_id = ?, special_message = ?, background_color = ?,
-       text_color = ?, image_url = ?, is_active = ?
+       text_color = ?, button_color = ?, image_url = ?, is_active = ?
        WHERE id = ?`,
       [
         config.title,
@@ -545,6 +573,7 @@ export async function updateUtmConfig(id, config) {
         config.specialMessage || null,
         config.backgroundColor || null,
         config.textColor || null,
+        config.buttonColor || null,
         config.imageUrl || null,
         config.isActive !== undefined ? config.isActive : true,
         id

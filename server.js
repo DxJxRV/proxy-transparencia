@@ -283,6 +283,7 @@ app.post("/api/utm-configs", async (req, res) => {
       specialMessage,
       backgroundColor,
       textColor,
+      buttonColor,
       imageUrl,
       isActive
     } = req.body;
@@ -305,6 +306,7 @@ app.post("/api/utm-configs", async (req, res) => {
       specialMessage,
       backgroundColor,
       textColor,
+      buttonColor,
       imageUrl,
       isActive
     });
@@ -349,6 +351,7 @@ app.put("/api/utm-configs/:id", async (req, res) => {
       specialMessage,
       backgroundColor,
       textColor,
+      buttonColor,
       imageUrl,
       isActive
     } = req.body;
@@ -370,6 +373,7 @@ app.put("/api/utm-configs/:id", async (req, res) => {
       specialMessage,
       backgroundColor,
       textColor,
+      buttonColor,
       imageUrl,
       isActive
     });
