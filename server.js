@@ -210,16 +210,25 @@ app.get("/api/analytics/estadisticas-generales", async (req, res) => {
 // Endpoint: Obtener todas las configuraciones UTM
 app.get("/api/utm-configs", async (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 🎯 Solicitando todas las configuraciones UTM`);
+  console.log(`\n========================================`);
+  console.log(`[${timestamp}] 🎯 PETICIÓN RECIBIDA: /api/utm-configs`);
+  console.log(`Método: ${req.method}`);
+  console.log(`IP: ${req.ip}`);
+  console.log(`========================================\n`);
 
   try {
+    console.log(`[${timestamp}] 🔄 Llamando a getAllUtmConfigs()...`);
     const configs = await getAllUtmConfigs();
+    console.log(`[${timestamp}] ✅ Configuraciones obtenidas exitosamente. Total: ${configs.length}`);
+
     res.status(200).json({
       success: true,
       data: configs
     });
+    console.log(`[${timestamp}] 📤 Respuesta enviada exitosamente\n`);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR al obtener configuraciones UTM:`, err);
+    console.error(`Stack trace:`, err.stack);
     res.status(500).json({
       success: false,
       error: "Error al obtener configuraciones UTM",
@@ -467,16 +476,25 @@ app.post("/api/utm-configs/:key/click", async (req, res) => {
 // Endpoint: Obtener todos los mensajes dirigidos
 app.get("/api/targeted-messages", async (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 💌 Solicitando todos los mensajes dirigidos`);
+  console.log(`\n========================================`);
+  console.log(`[${timestamp}] 💌 PETICIÓN RECIBIDA: /api/targeted-messages`);
+  console.log(`Método: ${req.method}`);
+  console.log(`IP: ${req.ip}`);
+  console.log(`========================================\n`);
 
   try {
+    console.log(`[${timestamp}] 🔄 Llamando a getAllTargetedMessages()...`);
     const messages = await getAllTargetedMessages();
+    console.log(`[${timestamp}] ✅ Mensajes obtenidos exitosamente. Total: ${messages.length}`);
+
     res.status(200).json({
       success: true,
       data: messages
     });
+    console.log(`[${timestamp}] 📤 Respuesta enviada exitosamente\n`);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR al obtener mensajes dirigidos:`, err);
+    console.error(`Stack trace:`, err.stack);
     res.status(500).json({
       success: false,
       error: "Error al obtener mensajes dirigidos",
@@ -705,16 +723,26 @@ app.post("/api/targeted-messages/:id/click", async (req, res) => {
 // Endpoint: Obtener analytics detallados de UTM por fecha
 app.get("/api/utm-analytics", async (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 📊 Solicitando analytics de UTM`);
+  console.log(`\n========================================`);
+  console.log(`[${timestamp}] 📊 PETICIÓN RECIBIDA: /api/utm-analytics`);
+  console.log(`Método: ${req.method}`);
+  console.log(`Headers:`, req.headers);
+  console.log(`IP: ${req.ip}`);
+  console.log(`========================================\n`);
 
   try {
+    console.log(`[${timestamp}] 🔄 Llamando a getUtmAnalytics()...`);
     const analytics = await getUtmAnalytics();
+    console.log(`[${timestamp}] ✅ Analytics obtenidos exitosamente. Registros: ${analytics.length}`);
+
     res.status(200).json({
       success: true,
       data: analytics
     });
+    console.log(`[${timestamp}] 📤 Respuesta enviada exitosamente\n`);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR al obtener analytics de UTM:`, err);
+    console.error(`Stack trace:`, err.stack);
     res.status(500).json({
       success: false,
       error: "Error al obtener analytics de UTM",
@@ -726,16 +754,30 @@ app.get("/api/utm-analytics", async (req, res) => {
 // Endpoint: Obtener resumen de estadísticas por UTM source
 app.get("/api/utm-analytics/summary", async (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 📊 Solicitando resumen de analytics de UTM`);
+  console.log(`\n========================================`);
+  console.log(`[${timestamp}] 📊 PETICIÓN RECIBIDA: /api/utm-analytics/summary`);
+  console.log(`Método: ${req.method}`);
+  console.log(`Headers:`, req.headers);
+  console.log(`IP: ${req.ip}`);
+  console.log(`Query params:`, req.query);
+  console.log(`========================================\n`);
 
   try {
+    console.log(`[${timestamp}] 🔄 Llamando a getUtmSummaryStats()...`);
     const summary = await getUtmSummaryStats();
+    console.log(`[${timestamp}] ✅ Resumen obtenido exitosamente. Registros: ${summary.length}`);
+    console.log(`[${timestamp}] 📊 Datos:`, JSON.stringify(summary, null, 2));
+
     res.status(200).json({
       success: true,
       data: summary
     });
+    console.log(`[${timestamp}] 📤 Respuesta enviada exitosamente\n`);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR al obtener resumen de analytics:`, err);
+    console.error(`Error name: ${err.name}`);
+    console.error(`Error message: ${err.message}`);
+    console.error(`Stack trace:`, err.stack);
     res.status(500).json({
       success: false,
       error: "Error al obtener resumen de analytics",
@@ -748,16 +790,25 @@ app.get("/api/utm-analytics/summary", async (req, res) => {
 app.get("/api/utm-analytics/users/:utmSource", async (req, res) => {
   const timestamp = new Date().toISOString();
   const { utmSource } = req.params;
-  console.log(`[${timestamp}] 📊 Solicitando usuarios para UTM: ${utmSource}`);
+  console.log(`\n========================================`);
+  console.log(`[${timestamp}] 📊 PETICIÓN RECIBIDA: /api/utm-analytics/users/${utmSource}`);
+  console.log(`Método: ${req.method}`);
+  console.log(`IP: ${req.ip}`);
+  console.log(`========================================\n`);
 
   try {
+    console.log(`[${timestamp}] 🔄 Llamando a getUsersByUtmSource("${utmSource}")...`);
     const users = await getUsersByUtmSource(utmSource);
+    console.log(`[${timestamp}] ✅ Usuarios obtenidos exitosamente. Total: ${users.length}`);
+
     res.status(200).json({
       success: true,
       data: users
     });
+    console.log(`[${timestamp}] 📤 Respuesta enviada exitosamente\n`);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR al obtener usuarios por UTM:`, err);
+    console.error(`Stack trace:`, err.stack);
     res.status(500).json({
       success: false,
       error: "Error al obtener usuarios por UTM",
@@ -769,16 +820,26 @@ app.get("/api/utm-analytics/users/:utmSource", async (req, res) => {
 // Endpoint: Obtener conteo de usuarios por UTM
 app.get("/api/utm-analytics/user-counts", async (req, res) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 📊 Solicitando conteo de usuarios por UTM`);
+  console.log(`\n========================================`);
+  console.log(`[${timestamp}] 📊 PETICIÓN RECIBIDA: /api/utm-analytics/user-counts`);
+  console.log(`Método: ${req.method}`);
+  console.log(`IP: ${req.ip}`);
+  console.log(`========================================\n`);
 
   try {
+    console.log(`[${timestamp}] 🔄 Llamando a getUtmUserCounts()...`);
     const counts = await getUtmUserCounts();
+    console.log(`[${timestamp}] ✅ Conteo obtenido exitosamente. UTM sources: ${counts.length}`);
+    console.log(`[${timestamp}] 📊 Datos:`, JSON.stringify(counts, null, 2));
+
     res.status(200).json({
       success: true,
       data: counts
     });
+    console.log(`[${timestamp}] 📤 Respuesta enviada exitosamente\n`);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR al obtener conteo de usuarios:`, err);
+    console.error(`Stack trace:`, err.stack);
     res.status(500).json({
       success: false,
       error: "Error al obtener conteo de usuarios",
