@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { logUsuarioNuevo, logConsulta, logProfesorVista } from "./database.js";
+import { logUsuarioNuevo, logConsulta, logProfesorVista, getUtmSourceBySid } from "./database.js";
 
 /**
  * Middleware para registrar peticiones entrantes con seguimiento de sesión
@@ -35,20 +35,40 @@ export function loggerMiddleware(req, res, next) {
   req.sid = sid;
   req.startTime = startTime;
   req.timestamp = timestamp;
-  
+
   // Obtener IP del cliente (prioridad: x-forwarded-for > x-real-ip > remoteAddress > ip)
-  const ip = 
+  const ip =
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ||
     req.headers["x-real-ip"] ||
     req.socket.remoteAddress ||
     req.ip ||
     "unknown";
-  
+
   req.clientIp = ip;
-  
+
   // Obtener User-Agent
   const ua = req.headers["user-agent"] || "unknown";
   req.userAgent = ua;
+
+  // Extraer parámetros UTM de la URL
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const utmParams = {
+    utm_source: url.searchParams.get('src') || url.searchParams.get('utm_source'),
+    utm_medium: url.searchParams.get('utm_medium'),
+    utm_campaign: url.searchParams.get('utm_campaign'),
+    utm_content: url.searchParams.get('utm_content'),
+    utm_term: url.searchParams.get('utm_term')
+  };
+
+  // Debug: Log de parámetros UTM extraídos
+  if (utmParams.utm_source) {
+    console.log('🏷️ UTM params detectados:', {
+      url: req.url,
+      utmParams: utmParams
+    });
+  }
+
+  req.utmParams = utmParams;
   
   // Construir objeto de log
   const logData = {
@@ -62,10 +82,11 @@ export function loggerMiddleware(req, res, next) {
   
   // Imprimir en consola
   if (isNewUser) {
-    console.log(`🆕 Usuario nuevo -> ${JSON.stringify(logData)}`);
-    
+    const logDataWithUtm = { ...logData, utm: utmParams.utm_source ? utmParams : null };
+    console.log(`🆕 Usuario nuevo -> ${JSON.stringify(logDataWithUtm)}`);
+
     // Guardar en base de datos solo si es usuario nuevo
-    logUsuarioNuevo(sid, ip, ua, req.method, logData.path).catch(err => {
+    logUsuarioNuevo(sid, ip, ua, req.method, logData.path, utmParams).catch(err => {
       console.error('⚠️ Error al guardar usuario nuevo en BD:', err);
     });
   } else {
@@ -81,16 +102,29 @@ export function loggerMiddleware(req, res, next) {
   };
   
   // Hook para ejecutar logging después de enviar la respuesta
-  res.on('finish', () => {
+  res.on('finish', async () => {
     const duracionMs = Date.now() - startTime;
-    
+
+    // Si no hay UTM en la request actual, intentar obtenerlo del historial del usuario
+    let utmSource = req.utmParams?.utm_source;
+    if (!utmSource && !isNewUser) {
+      utmSource = await getUtmSourceBySid(sid);
+      if (utmSource) {
+        console.log(`🔍 UTM recuperado del historial: ${utmSource} para SID: ${sid.substring(0, 8)}...`);
+      }
+    }
+
     // Logging específico por endpoint
-    if (req.originalUrl === '/api/consulta' && req.method === 'POST' && req.responseData) {
+    if (req.originalUrl.startsWith('/api/consulta') && req.method === 'POST' && req.responseData) {
       const { entidadFederativa } = req.body || {};
       const nombreProfesor = req.body?.contenido || null;
       const totalRegistros = req.totalRegistros || 0;
       const registrosFiltrados = req.responseData?.datosSolr?.length || 0;
-      
+
+      if (utmSource) {
+        console.log(`📝 Guardando consulta con UTM: ${utmSource}`);
+      }
+
       logConsulta(
         sid,
         nombreProfesor,
@@ -99,11 +133,12 @@ export function loggerMiddleware(req, res, next) {
         registrosFiltrados,
         duracionMs,
         ip,
-        ua
+        ua,
+        utmSource
       ).catch(err => {
         console.error('⚠️ Error al guardar consulta en BD:', err);
       });
-    } else if (req.originalUrl === '/api/profesor-vista' && req.method === 'POST') {
+    } else if (req.originalUrl.startsWith('/api/profesor-vista') && req.method === 'POST') {
       const {
         professorId,
         nombreProfesor,
@@ -113,7 +148,7 @@ export function loggerMiddleware(req, res, next) {
         sueldoAcumulado,
         ultimoSueldo
       } = req.body || {};
-      
+
       // Parsear sueldos si vienen como strings
       const parsearMonto = (monto) => {
         try {
@@ -125,7 +160,11 @@ export function loggerMiddleware(req, res, next) {
           return null;
         }
       };
-      
+
+      if (utmSource) {
+        console.log(`📝 Guardando vista de profesor con UTM: ${utmSource}`);
+      }
+
       logProfesorVista(
         sid,
         professorId,
@@ -136,7 +175,8 @@ export function loggerMiddleware(req, res, next) {
         parsearMonto(sueldoAcumulado),
         parsearMonto(ultimoSueldo),
         ip,
-        ua
+        ua,
+        utmSource
       ).catch(err => {
         console.error('⚠️ Error al guardar vista de profesor en BD:', err);
       });

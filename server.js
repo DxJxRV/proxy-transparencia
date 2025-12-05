@@ -4,13 +4,33 @@ import dotenv from "dotenv";
 import { handleConsulta, handleProfesorVista } from "./consultaHandler.js";
 import { initDatabase, closeDatabase } from "./database.js";
 import { loggerMiddleware } from "./loggerMiddleware.js";
-import { 
-  getNombresMasBuscados, 
-  getProfesoresMasClickeados, 
+import {
+  getNombresMasBuscados,
+  getProfesoresMasClickeados,
   getProfesoresTopSueldoAcumulado,
   getProfesoresBottomSueldoAcumulado,
   getEstadisticasGenerales
 } from "./analyticsHandler.js";
+import {
+  getAllUtmConfigs,
+  getUtmConfigByKey,
+  createUtmConfig,
+  updateUtmConfig,
+  deleteUtmConfig,
+  incrementUtmViewCount,
+  incrementUtmClickCount,
+  getAllTargetedMessages,
+  getActiveTargetedMessagesForUser,
+  createTargetedMessage,
+  updateTargetedMessage,
+  deleteTargetedMessage,
+  incrementTargetedMessageShowCount,
+  incrementTargetedMessageClickCount,
+  getUtmAnalytics,
+  getUtmSummaryStats,
+  getUsersByUtmSource,
+  getUtmUserCounts
+} from "./database.js";
 
 dotenv.config();
 
@@ -29,7 +49,7 @@ app.use(loggerMiddleware);
 // CORS: limita al origen de tu frontend
 app.use(cors({
   origin: process.env.ALLOWED_ORIGIN || "*",
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Accept"]
 }));
 
@@ -184,6 +204,590 @@ app.get("/api/analytics/estadisticas-generales", async (req, res) => {
 });
 
 // ==================== FIN ENDPOINTS DE ANALYTICS ====================
+
+// ==================== ENDPOINTS DE UTM CONFIGS ====================
+
+// Endpoint: Obtener todas las configuraciones UTM
+app.get("/api/utm-configs", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🎯 Solicitando todas las configuraciones UTM`);
+
+  try {
+    const configs = await getAllUtmConfigs();
+    res.status(200).json({
+      success: true,
+      data: configs
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener configuraciones UTM:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener configuraciones UTM",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Obtener configuración UTM por key
+app.get("/api/utm-configs/:key", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { key } = req.params;
+  console.log(`[${timestamp}] 🎯 Solicitando configuración UTM para key: ${key}`);
+
+  try {
+    const config = await getUtmConfigByKey(key);
+
+    if (!config) {
+      return res.status(404).json({
+        success: false,
+        error: "Configuración UTM no encontrada"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: config
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener configuración UTM:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener configuración UTM",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Crear nueva configuración UTM
+app.post("/api/utm-configs", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🎯 Creando nueva configuración UTM`);
+
+  try {
+    const {
+      utmKey,
+      title,
+      subtitle,
+      buttonText,
+      suggestedName,
+      suggestedProfessorId,
+      specialMessage,
+      backgroundColor,
+      textColor,
+      imageUrl,
+      isActive
+    } = req.body;
+
+    // Validar campos requeridos
+    if (!utmKey || !title) {
+      return res.status(400).json({
+        success: false,
+        error: "Los campos 'utmKey' y 'title' son requeridos"
+      });
+    }
+
+    const result = await createUtmConfig({
+      utmKey,
+      title,
+      subtitle,
+      buttonText,
+      suggestedName,
+      suggestedProfessorId,
+      specialMessage,
+      backgroundColor,
+      textColor,
+      imageUrl,
+      isActive
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Configuración UTM creada exitosamente",
+      data: { id: result.insertId }
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al crear configuración UTM:`, err);
+
+    // Manejar error de clave duplicada
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({
+        success: false,
+        error: "Ya existe una configuración con ese utm_key"
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Error al crear configuración UTM",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Actualizar configuración UTM existente
+app.put("/api/utm-configs/:id", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { id } = req.params;
+  console.log(`[${timestamp}] 🎯 Actualizando configuración UTM ID: ${id}`);
+
+  try {
+    const {
+      title,
+      subtitle,
+      buttonText,
+      suggestedName,
+      suggestedProfessorId,
+      specialMessage,
+      backgroundColor,
+      textColor,
+      imageUrl,
+      isActive
+    } = req.body;
+
+    // Validar campos requeridos
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: "El campo 'title' es requerido"
+      });
+    }
+
+    const result = await updateUtmConfig(id, {
+      title,
+      subtitle,
+      buttonText,
+      suggestedName,
+      suggestedProfessorId,
+      specialMessage,
+      backgroundColor,
+      textColor,
+      imageUrl,
+      isActive
+    });
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Configuración UTM no encontrada"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Configuración UTM actualizada exitosamente"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al actualizar configuración UTM:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al actualizar configuración UTM",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Eliminar configuración UTM
+app.delete("/api/utm-configs/:id", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { id } = req.params;
+  console.log(`[${timestamp}] 🎯 Eliminando configuración UTM ID: ${id}`);
+
+  try {
+    const result = await deleteUtmConfig(id);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Configuración UTM no encontrada"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Configuración UTM eliminada exitosamente"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al eliminar configuración UTM:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al eliminar configuración UTM",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Incrementar contador de vistas para un UTM
+app.post("/api/utm-configs/:key/view", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { key } = req.params;
+  console.log(`[${timestamp}] 👁️ Incrementando vistas para UTM: ${key}`);
+
+  try {
+    await incrementUtmViewCount(key);
+    res.status(200).json({
+      success: true,
+      message: "Vista registrada"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] ⚠️ ERROR al incrementar vistas UTM:`, err);
+    // No lanzamos error 500 para no afectar el flujo del usuario
+    res.status(200).json({
+      success: false,
+      message: "Error al registrar vista (no crítico)"
+    });
+  }
+});
+
+// Endpoint: Incrementar contador de clicks para un UTM
+app.post("/api/utm-configs/:key/click", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { key } = req.params;
+  console.log(`[${timestamp}] 🖱️ Incrementando clicks para UTM: ${key}`);
+
+  try {
+    await incrementUtmClickCount(key);
+    res.status(200).json({
+      success: true,
+      message: "Click registrado"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] ⚠️ ERROR al incrementar clicks UTM:`, err);
+    // No lanzamos error 500 para no afectar el flujo del usuario
+    res.status(200).json({
+      success: false,
+      message: "Error al registrar click (no crítico)"
+    });
+  }
+});
+
+// ==================== FIN ENDPOINTS DE UTM CONFIGS ====================
+
+// ==================== ENDPOINTS DE TARGETED MESSAGES ====================
+
+// Endpoint: Obtener todos los mensajes dirigidos
+app.get("/api/targeted-messages", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 💌 Solicitando todos los mensajes dirigidos`);
+
+  try {
+    const messages = await getAllTargetedMessages();
+    res.status(200).json({
+      success: true,
+      data: messages
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener mensajes dirigidos:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener mensajes dirigidos",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Obtener mensajes activos para el usuario actual (basado en SID)
+app.get("/api/targeted-messages/active", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const sid = req.sid; // Viene del loggerMiddleware
+  console.log(`[${timestamp}] 💌 Solicitando mensajes activos para SID: ${sid}`);
+
+  try {
+    const messages = await getActiveTargetedMessagesForUser(sid);
+    res.status(200).json({
+      success: true,
+      data: messages
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener mensajes activos:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener mensajes activos",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Crear nuevo mensaje dirigido
+app.post("/api/targeted-messages", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 💌 Creando nuevo mensaje dirigido`);
+
+  try {
+    const {
+      utmKey,
+      title,
+      subtitle,
+      message,
+      backgroundColor,
+      textColor,
+      buttonText,
+      buttonUrl,
+      startDate,
+      endDate,
+      isActive
+    } = req.body;
+
+    // Validar campos requeridos
+    if (!utmKey || !title || !message || !startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: "Los campos 'utmKey', 'title', 'message', 'startDate' y 'endDate' son requeridos"
+      });
+    }
+
+    const result = await createTargetedMessage({
+      utmKey,
+      title,
+      subtitle,
+      message,
+      backgroundColor,
+      textColor,
+      buttonText,
+      buttonUrl,
+      startDate,
+      endDate,
+      isActive
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Mensaje dirigido creado exitosamente",
+      data: { id: result.insertId }
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al crear mensaje dirigido:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al crear mensaje dirigido",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Actualizar mensaje dirigido
+app.put("/api/targeted-messages/:id", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { id } = req.params;
+  console.log(`[${timestamp}] 💌 Actualizando mensaje dirigido ID: ${id}`);
+
+  try {
+    const {
+      title,
+      subtitle,
+      message,
+      backgroundColor,
+      textColor,
+      buttonText,
+      buttonUrl,
+      startDate,
+      endDate,
+      isActive
+    } = req.body;
+
+    // Validar campos requeridos
+    if (!title || !message || !startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: "Los campos 'title', 'message', 'startDate' y 'endDate' son requeridos"
+      });
+    }
+
+    const result = await updateTargetedMessage(id, {
+      title,
+      subtitle,
+      message,
+      backgroundColor,
+      textColor,
+      buttonText,
+      buttonUrl,
+      startDate,
+      endDate,
+      isActive
+    });
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Mensaje dirigido no encontrado"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Mensaje dirigido actualizado exitosamente"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al actualizar mensaje dirigido:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al actualizar mensaje dirigido",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Eliminar mensaje dirigido
+app.delete("/api/targeted-messages/:id", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { id } = req.params;
+  console.log(`[${timestamp}] 💌 Eliminando mensaje dirigido ID: ${id}`);
+
+  try {
+    const result = await deleteTargetedMessage(id);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Mensaje dirigido no encontrado"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Mensaje dirigido eliminado exitosamente"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al eliminar mensaje dirigido:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al eliminar mensaje dirigido",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Incrementar contador de visualizaciones de mensaje dirigido
+app.post("/api/targeted-messages/:id/show", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { id } = req.params;
+  console.log(`[${timestamp}] 👁️ Incrementando visualizaciones para mensaje ID: ${id}`);
+
+  try {
+    await incrementTargetedMessageShowCount(id);
+    res.status(200).json({
+      success: true,
+      message: "Visualización registrada"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] ⚠️ ERROR al incrementar visualizaciones:`, err);
+    res.status(200).json({
+      success: false,
+      message: "Error al registrar visualización (no crítico)"
+    });
+  }
+});
+
+// Endpoint: Incrementar contador de clicks de mensaje dirigido
+app.post("/api/targeted-messages/:id/click", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { id } = req.params;
+  console.log(`[${timestamp}] 🖱️ Incrementando clicks para mensaje ID: ${id}`);
+
+  try {
+    await incrementTargetedMessageClickCount(id);
+    res.status(200).json({
+      success: true,
+      message: "Click registrado"
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] ⚠️ ERROR al incrementar clicks:`, err);
+    res.status(200).json({
+      success: false,
+      message: "Error al registrar click (no crítico)"
+    });
+  }
+});
+
+// ==================== FIN ENDPOINTS DE TARGETED MESSAGES ====================
+
+// ==================== ENDPOINTS DE UTM ANALYTICS ====================
+
+// Endpoint: Obtener analytics detallados de UTM por fecha
+app.get("/api/utm-analytics", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 📊 Solicitando analytics de UTM`);
+
+  try {
+    const analytics = await getUtmAnalytics();
+    res.status(200).json({
+      success: true,
+      data: analytics
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener analytics de UTM:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener analytics de UTM",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Obtener resumen de estadísticas por UTM source
+app.get("/api/utm-analytics/summary", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 📊 Solicitando resumen de analytics de UTM`);
+
+  try {
+    const summary = await getUtmSummaryStats();
+    res.status(200).json({
+      success: true,
+      data: summary
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener resumen de analytics:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener resumen de analytics",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Obtener usuarios por UTM source
+app.get("/api/utm-analytics/users/:utmSource", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const { utmSource } = req.params;
+  console.log(`[${timestamp}] 📊 Solicitando usuarios para UTM: ${utmSource}`);
+
+  try {
+    const users = await getUsersByUtmSource(utmSource);
+    res.status(200).json({
+      success: true,
+      data: users
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener usuarios por UTM:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener usuarios por UTM",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint: Obtener conteo de usuarios por UTM
+app.get("/api/utm-analytics/user-counts", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 📊 Solicitando conteo de usuarios por UTM`);
+
+  try {
+    const counts = await getUtmUserCounts();
+    res.status(200).json({
+      success: true,
+      data: counts
+    });
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR al obtener conteo de usuarios:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al obtener conteo de usuarios",
+      detail: String(err)
+    });
+  }
+});
+
+// ==================== FIN ENDPOINTS DE UTM ANALYTICS ====================
 
 // Inicializar la base de datos y arrancar el servidor
 async function startServer() {
