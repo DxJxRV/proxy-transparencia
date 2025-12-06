@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { handleConsulta, handleProfesorVista } from "./consultaHandler.js";
+import { handleConsulta, handleProfesorVista, buscarPorApellido, buscarPorInstitucion } from "./consultaHandler.js";
 import { initDatabase, closeDatabase } from "./database.js";
 import { loggerMiddleware } from "./loggerMiddleware.js";
 import {
@@ -98,6 +98,60 @@ app.post("/api/profesor-vista", async (req, res) => {
       success: false, 
       error: "Error al registrar vista", 
       detail: String(err) 
+    });
+  }
+});
+
+// Endpoint para buscar personas con el mismo apellido
+app.post("/api/same-lastname", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 👨‍👩‍👧‍👦 Búsqueda por apellido`);
+
+  try {
+    const { apellidoPaterno, apellidoMaterno, excludeProfessorId } = req.body;
+
+    if (!apellidoPaterno) {
+      return res.status(400).json({
+        success: false,
+        error: "El apellido paterno es requerido"
+      });
+    }
+
+    const result = await buscarPorApellido(apellidoPaterno, apellidoMaterno, TARGET_URL, excludeProfessorId);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR en búsqueda por apellido:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al buscar por apellido",
+      detail: String(err)
+    });
+  }
+});
+
+// Endpoint para buscar personas de la misma institución
+app.post("/api/same-institution", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🏛️ Búsqueda por institución`);
+
+  try {
+    const { identificadorGrupo, idEntidadFederativa, sujetoObligado, excludeProfessorId } = req.body;
+
+    if (!identificadorGrupo || !sujetoObligado) {
+      return res.status(400).json({
+        success: false,
+        error: "El identificadorGrupo y sujetoObligado son requeridos"
+      });
+    }
+
+    const result = await buscarPorInstitucion(identificadorGrupo, idEntidadFederativa, sujetoObligado, TARGET_URL, excludeProfessorId);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(`[${timestamp}] 💥 ERROR en búsqueda por institución:`, err);
+    res.status(500).json({
+      success: false,
+      error: "Error al buscar por institución",
+      detail: String(err)
     });
   }
 });

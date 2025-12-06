@@ -250,10 +250,199 @@ export async function handleProfesorVista(req) {
   console.log(`[${timestamp}] 👁️ Vista de card: ${nombreProfesor || 'Sin nombre'} (ID: ${professorId || 'Sin ID'})`);
   console.log(`[${timestamp}] 🆔 Session ID: ${req.sid || 'sin sid'}`);
   console.log(`[${timestamp}] 📍 IP: ${req.clientIp}`);
-  
+
   // El logging en BD se hace automáticamente en el middleware
   return {
     success: true,
     message: 'Vista registrada correctamente'
   };
+}
+
+/**
+ * Busca personas con el mismo apellido
+ */
+export async function buscarPorApellido(apellidoPaterno, apellidoMaterno, targetUrl, excludeProfessorId) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🔍 Buscando por apellidos: ${apellidoPaterno} ${apellidoMaterno || ''}`);
+
+  try {
+    // Construir jsonAtributos con los apellidos
+    const jsonAtributos = {
+      idEntidadFederativa: null,
+      idSujetoObligado: null,
+      nombre: "",
+      primerApellido: apellidoPaterno,
+      segundoApellido: apellidoMaterno || "",
+      denominacionCargo: "",
+      montoNetoRangoInicial: null,
+      montoNetoRangoFinal: null
+    };
+
+    // Buscar por apellidos usando jsonAtributos
+    const requestBody = {
+      contenido: "",
+      cantidad: 100,
+      numeroPagina: 0,
+      coleccion: "SUELDOS",
+      dePaginador: false,
+      idCompartido: "",
+      filtroSeleccionado: "",
+      tipoOrdenamiento: "COINCIDENCIA",
+      sujetosObligados: { seleccion: [], descartado: [] },
+      organosGarantes: { seleccion: [], descartado: [] },
+      anioFechaInicio: { seleccion: [], descartado: [] },
+      jsonAtributos
+    };
+
+    console.log(`[${timestamp}] 📤 JSON enviado a API de transparencia:`);
+    console.log(JSON.stringify(requestBody, null, 2));
+
+    const upstream = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "origin": "https://tematicos.plataformadetransparencia.org.mx",
+        "referer": "https://tematicos.plataformadetransparencia.org.mx/"
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const text = await upstream.text();
+    const data = JSON.parse(text);
+
+    if (data.paylod && data.paylod.datosSolr && Array.isArray(data.paylod.datosSolr)) {
+      // Filtrar datos por nombres únicos
+      let filteredData = filterByUniqueName(data.paylod.datosSolr);
+
+      // Excluir al profesor actual
+      filteredData = filteredData.filter(person => person.professorId !== excludeProfessorId);
+
+      // Ordenar por sueldo actual de mayor a menor
+      filteredData.sort((a, b) => {
+        const sueldoA = parsearMonto(a.sueldoActual || '$0');
+        const sueldoB = parsearMonto(b.sueldoActual || '$0');
+        return sueldoB - sueldoA;
+      });
+
+      // Limitar a 10 resultados
+      filteredData = filteredData.slice(0, 10);
+
+      console.log(`[${timestamp}] ✅ Encontrados ${filteredData.length} personas con apellidos similares`);
+
+      return {
+        success: true,
+        data: filteredData.map(person => ({
+          nombre: person.nombre,
+          professorId: person.professorId,
+          sueldoActual: person.sueldoActual,
+          sujetoObligado: person.sujetoObligado,
+          entidadFederativa: person.entidadFederativa
+        }))
+      };
+    }
+
+    return { success: true, data: [] };
+  } catch (error) {
+    console.error(`[${timestamp}] ❌ Error al buscar por apellido:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Busca personas de la misma institución
+ */
+export async function buscarPorInstitucion(identificadorGrupo, idEntidadFederativa, sujetoObligado, targetUrl, excludeProfessorId) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🏛️ Buscando por institución: ${sujetoObligado.substring(0, 50)}...`);
+  console.log(`[${timestamp}] 📋 ID Grupo: ${identificadorGrupo}`);
+  console.log(`[${timestamp}] 📋 ID Entidad: ${idEntidadFederativa || 'No proporcionado'}`);
+
+  try {
+    const jsonAtributos = {
+      idSujetoObligado: {
+        id: identificadorGrupo,
+        nombre: sujetoObligado
+      },
+      nombre: "",
+      primerApellido: "",
+      segundoApellido: "",
+      denominacionCargo: "",
+      montoNetoRangoInicial: null,
+      montoNetoRangoFinal: null
+    };
+
+    // Agregar idEntidadFederativa solo si se proporciona
+    if (idEntidadFederativa) {
+      jsonAtributos.idEntidadFederativa = idEntidadFederativa;
+    }
+
+    const requestBody = {
+      contenido: "",
+      cantidad: 100,
+      numeroPagina: 0,
+      coleccion: "SUELDOS",
+      dePaginador: false,
+      idCompartido: "",
+      filtroSeleccionado: "",
+      tipoOrdenamiento: "COINCIDENCIA",
+      sujetosObligados: { seleccion: [], descartado: [] },
+      organosGarantes: { seleccion: [], descartado: [] },
+      anioFechaInicio: { seleccion: [], descartado: [] },
+      jsonAtributos
+    };
+
+    console.log(`[${timestamp}] 📤 JSON enviado a API de transparencia:`);
+    console.log(JSON.stringify(requestBody, null, 2));
+
+    const upstream = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json",
+        "origin": "https://tematicos.plataformadetransparencia.org.mx",
+        "referer": "https://tematicos.plataformadetransparencia.org.mx/"
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const text = await upstream.text();
+    const data = JSON.parse(text);
+
+    if (data.paylod && data.paylod.datosSolr && Array.isArray(data.paylod.datosSolr)) {
+      // Filtrar datos por nombres únicos
+      let filteredData = filterByUniqueName(data.paylod.datosSolr);
+
+      // Excluir al profesor actual
+      filteredData = filteredData.filter(person => person.professorId !== excludeProfessorId);
+
+      // Ordenar por sueldo actual de mayor a menor
+      filteredData.sort((a, b) => {
+        const sueldoA = parsearMonto(a.sueldoActual || '$0');
+        const sueldoB = parsearMonto(b.sueldoActual || '$0');
+        return sueldoB - sueldoA;
+      });
+
+      // Limitar a 10 resultados
+      filteredData = filteredData.slice(0, 10);
+
+      console.log(`[${timestamp}] ✅ Encontrados ${filteredData.length} personas de la misma institución`);
+
+      return {
+        success: true,
+        data: filteredData.map(person => ({
+          nombre: person.nombre,
+          professorId: person.professorId,
+          sueldoActual: person.sueldoActual,
+          sujetoObligado: person.sujetoObligado,
+          entidadFederativa: person.entidadFederativa
+        }))
+      };
+    }
+
+    return { success: true, data: [] };
+  } catch (error) {
+    console.error(`[${timestamp}] ❌ Error al buscar por institución:`, error);
+    throw error;
+  }
 }
