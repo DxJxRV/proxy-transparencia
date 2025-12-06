@@ -108,7 +108,7 @@ app.post("/api/same-lastname", async (req, res) => {
   console.log(`[${timestamp}] 👨‍👩‍👧‍👦 Búsqueda por apellido`);
 
   try {
-    const { apellidoPaterno, apellidoMaterno, excludeProfessorId } = req.body;
+    const { apellidoPaterno, apellidoMaterno, excludeProfessorId, numeroPagina = 0, fetchAll = false, maxRecords = 5000, searchText = '' } = req.body;
 
     if (!apellidoPaterno) {
       return res.status(400).json({
@@ -117,7 +117,7 @@ app.post("/api/same-lastname", async (req, res) => {
       });
     }
 
-    const result = await buscarPorApellido(apellidoPaterno, apellidoMaterno, TARGET_URL, excludeProfessorId);
+    const result = await buscarPorApellido(apellidoPaterno, apellidoMaterno, TARGET_URL, excludeProfessorId, numeroPagina, fetchAll, maxRecords, searchText);
     res.status(200).json(result);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR en búsqueda por apellido:`, err);
@@ -135,7 +135,7 @@ app.post("/api/same-institution", async (req, res) => {
   console.log(`[${timestamp}] 🏛️ Búsqueda por institución`);
 
   try {
-    const { identificadorGrupo, idEntidadFederativa, sujetoObligado, excludeProfessorId } = req.body;
+    const { identificadorGrupo, idEntidadFederativa, sujetoObligado, excludeProfessorId, numeroPagina = 0, fetchAll = false, maxRecords = 5000, searchText = '' } = req.body;
 
     if (!identificadorGrupo || !sujetoObligado) {
       return res.status(400).json({
@@ -144,7 +144,7 @@ app.post("/api/same-institution", async (req, res) => {
       });
     }
 
-    const result = await buscarPorInstitucion(identificadorGrupo, idEntidadFederativa, sujetoObligado, TARGET_URL, excludeProfessorId);
+    const result = await buscarPorInstitucion(identificadorGrupo, idEntidadFederativa, sujetoObligado, TARGET_URL, excludeProfessorId, numeroPagina, fetchAll, maxRecords, searchText);
     res.status(200).json(result);
   } catch (err) {
     console.error(`[${timestamp}] 💥 ERROR en búsqueda por institución:`, err);

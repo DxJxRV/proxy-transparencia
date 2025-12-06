@@ -5,60 +5,72 @@
  */
 export async function handleConsulta(req, targetUrl) {
   const timestamp = req.timestamp || new Date().toISOString();
-  
+
   // Extraer información del request (ya procesada por el middleware)
   const { entidadFederativa, ...bodyWithoutFilter } = req.body;
   const nombreProfesor = bodyWithoutFilter.contenido || null;
-  
+
   console.log(`[${timestamp}] 🏛️ Filtro entidad federativa: ${entidadFederativa || 'ninguno'}`);
   console.log(`[${timestamp}] 👤 Nombre profesor (contenido): ${nombreProfesor || 'ninguno'}`);
   console.log(`[${timestamp}] 🆔 Session ID: ${req.sid || 'sin sid'}`);
   console.log(`[${timestamp}] 📍 IP: ${req.clientIp}, User Agent: ${req.userAgent.substring(0, 50)}...`);
-  console.log("Request Body:", bodyWithoutFilter);
-  
+
   console.log(`[${timestamp}] 🔄 Enviando petición al servidor upstream...`);
-  
-  const upstream = await fetch(targetUrl, {
-    method: "POST",
-    headers: {
-      "accept": "application/json, text/plain, */*",
-      "content-type": "application/json",
-      "origin": "https://tematicos.plataformadetransparencia.org.mx",
-      "referer": "https://tematicos.plataformadetransparencia.org.mx/"
-    },
-    body: JSON.stringify(bodyWithoutFilter),
-  });
 
-  const contentType = upstream.headers.get("content-type") || "application/json";
-  const text = await upstream.text();
+  try {
+    const { consultarTransparencia } = await import('./transparenciaClient.js');
 
-  if (upstream.ok) {
-    console.log(`[${timestamp}] ✅ Petición ACEPTADA - Status: ${upstream.status}`);
-  } else {
-    console.log(`[${timestamp}] ❌ Petición RECHAZADA - Status: ${upstream.status}`);
-  }
+    // Usar el cliente genérico
+    const result = await consultarTransparencia(targetUrl, {
+      contenido: bodyWithoutFilter.contenido || '',
+      cantidad: bodyWithoutFilter.cantidad || 200,
+      numeroPagina: bodyWithoutFilter.numeroPagina || 0,
+      jsonAtributos: bodyWithoutFilter.jsonAtributos || null,
+      tipoOrdenamiento: bodyWithoutFilter.tipoOrdenamiento || 'COINCIDENCIA',
+      dePaginador: bodyWithoutFilter.dePaginador || false
+    });
 
-  // Si es JSON, procesamos la respuesta
-  if (contentType.includes("application/json")) {
-    const data = JSON.parse(text);
-    
-    // Verificamos si tiene la estructura esperada con payload.datosSolr
-    if (data.paylod && data.paylod.datosSolr && Array.isArray(data.paylod.datosSolr)) {
-      const result = await processDataSolr(
-        data, 
-        entidadFederativa, 
-        timestamp, 
-        upstream.status,
+    if (result.success && result.data.length > 0) {
+      console.log(`[${timestamp}] ✅ Petición ACEPTADA - ${result.data.length} resultados`);
+
+      // Construir estructura compatible con el formato original (data.paylod)
+      const dataForProcessing = {
+        paylod: {
+          datosSolr: result.data,
+          sujetosObligados: result.sujetosObligados,
+          organosGarantes: result.organosGarantes,
+          anioFechaInicio: result.anioFechaInicio,
+          paginador: result.paginador
+        }
+      };
+
+      const processedResult = await processDataSolr(
+        dataForProcessing,
+        entidadFederativa,
+        timestamp,
+        200,
         req
       );
-      return result;
+      return processedResult;
     } else {
-      console.log(`[${timestamp}] ⚠️ Estructura no esperada, devolviendo respuesta original`);
-      return { status: upstream.status, contentType, data: text };
+      console.log(`[${timestamp}] ⚠️ Sin resultados o error en consulta`);
+      return {
+        status: 200,
+        contentType: "application/json",
+        data: {
+          datosSolr: [],
+          sujetosObligados: [],
+          entidadesFederativas: []
+        }
+      };
     }
-  } else {
-    console.log(`[${timestamp}] 📄 Respuesta no-JSON, devolviendo tal como viene`);
-    return { status: upstream.status, contentType, data: text };
+  } catch (error) {
+    console.error(`[${timestamp}] ❌ Error en consulta:`, error);
+    return {
+      status: 500,
+      contentType: "application/json",
+      data: { error: error.message }
+    };
   }
 }
 
@@ -91,11 +103,12 @@ async function processDataSolr(data, entidadFederativa, timestamp, status, req) 
   const response = {
     datosSolr: filteredData,
     sujetosObligados: data.paylod.sujetosObligados || [],
-    entidadesFederativas: entidadesFederativas
+    entidadesFederativas: entidadesFederativas,
+    paginador: data.paylod.paginador || null // Incluir información de paginación
   };
-  
+
   console.log(`[${timestamp}] 🔍 Datos filtrados: ${filteredData.length} registros únicos, ${entidadesFederativas.length} entidades federativas`);
-  
+
   // El logging en BD se hace automáticamente en el middleware
   return { status, contentType: "application/json", data: response };
 }
@@ -260,89 +273,362 @@ export async function handleProfesorVista(req) {
 
 /**
  * Busca personas con el mismo apellido
+ * Hace dos consultas: una específica con jsonAtributos y otra general con texto plano
+ * Soporta paginación del servidor
+ * @param {boolean} fetchAll - Si true, retorna todos los datos sin paginación
+ * @param {number} maxRecords - Límite máximo de registros a traer de Transparencia (0 = sin límite, default 5000)
+ * @param {string} searchText - Texto de búsqueda adicional para filtrar (opcional)
  */
-export async function buscarPorApellido(apellidoPaterno, apellidoMaterno, targetUrl, excludeProfessorId) {
+export async function buscarPorApellido(apellidoPaterno, apellidoMaterno, targetUrl, excludeProfessorId, numeroPagina = 0, fetchAll = false, maxRecords = 5000, searchText = '') {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 🔍 Buscando por apellidos: ${apellidoPaterno} ${apellidoMaterno || ''}`);
+  console.log(`[${timestamp}] 🔍 Buscando por apellidos: ${apellidoPaterno} ${apellidoMaterno || ''} (página ${numeroPagina})`);
+  console.log(`[${timestamp}] 🎯 Límite de registros: ${maxRecords}`);
+  console.log(`[${timestamp}] 🔍 Texto de búsqueda: ${searchText || 'ninguno'}`);
 
   try {
-    // Construir jsonAtributos con los apellidos
-    const jsonAtributos = {
-      idEntidadFederativa: null,
-      idSujetoObligado: null,
-      nombre: "",
-      primerApellido: apellidoPaterno,
-      segundoApellido: apellidoMaterno || "",
-      denominacionCargo: "",
-      montoNetoRangoInicial: null,
-      montoNetoRangoFinal: null
-    };
+    const { consultarTransparencia, buildJsonAtributosApellidos } = await import('./transparenciaClient.js');
 
-    // Buscar por apellidos usando jsonAtributos
-    const requestBody = {
-      contenido: "",
-      cantidad: 100,
-      numeroPagina: 0,
-      coleccion: "SUELDOS",
-      dePaginador: false,
-      idCompartido: "",
-      filtroSeleccionado: "",
-      tipoOrdenamiento: "COINCIDENCIA",
-      sujetosObligados: { seleccion: [], descartado: [] },
-      organosGarantes: { seleccion: [], descartado: [] },
-      anioFechaInicio: { seleccion: [], descartado: [] },
-      jsonAtributos
-    };
+    const cantidadPorPagina = 10;
 
-    console.log(`[${timestamp}] 📤 JSON enviado a API de transparencia:`);
-    console.log(JSON.stringify(requestBody, null, 2));
+    // Si hay texto de búsqueda, usarlo directamente con los apellidos
+    if (searchText && searchText.trim()) {
+      const busquedaCombinada = apellidoMaterno
+        ? `${apellidoPaterno} ${apellidoMaterno} ${searchText.trim()}`
+        : `${apellidoPaterno} ${searchText.trim()}`;
 
-    const upstream = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "accept": "application/json, text/plain, */*",
-        "content-type": "application/json",
-        "origin": "https://tematicos.plataformadetransparencia.org.mx",
-        "referer": "https://tematicos.plataformadetransparencia.org.mx/"
-      },
-      body: JSON.stringify(requestBody),
+      console.log(`[${timestamp}] 🔍 Búsqueda combinada: ${busquedaCombinada}`);
+
+      // Solo una consulta con búsqueda combinada
+      const primeraConsulta = await consultarTransparencia(targetUrl, {
+        contenido: busquedaCombinada,
+        cantidad: 200,
+        numeroPagina: 0
+      });
+
+      let todosLosDatos = [];
+      let totalPaginas = 0;
+      let paginasTraidas = 0;
+
+      if (primeraConsulta.success && primeraConsulta.data.length > 0) {
+        todosLosDatos = [...primeraConsulta.data];
+        const paginas = primeraConsulta.paginador?.numeroPaginas || 1;
+        totalPaginas = paginas;
+
+        const paginasNecesarias = maxRecords > 0 ? Math.ceil(maxRecords / 200) : paginas;
+        const paginasATraer = Math.min(paginasNecesarias, paginas);
+        paginasTraidas = paginasATraer;
+
+        if (paginasATraer > 1) {
+          console.log(`[${timestamp}] 🔄 Búsqueda combinada: trayendo ${paginasATraer - 1} páginas adicionales (límite: ${maxRecords})...`);
+          const promesas = [];
+          for (let i = 1; i < paginasATraer; i++) {
+            promesas.push(
+              consultarTransparencia(targetUrl, {
+                contenido: busquedaCombinada,
+                cantidad: 200,
+                numeroPagina: i
+              })
+            );
+          }
+          const resultados = await Promise.all(promesas);
+          resultados.forEach(r => {
+            if (r.success && r.data.length > 0) {
+              todosLosDatos.push(...r.data);
+            }
+          });
+        }
+      }
+
+      const hasMore = paginasTraidas < totalPaginas;
+
+      // Obtener el total real del servidor
+      const totalRealServidor = primeraConsulta.paginador?.total || 0;
+
+      if (todosLosDatos.length > 0) {
+        let filteredData = filterByUniqueName(todosLosDatos);
+        filteredData = filteredData.filter(person => person.professorId !== excludeProfessorId);
+
+        // Ordenar por sueldo
+        filteredData.sort((a, b) => {
+          const sueldoA = parsearMonto(a.sueldoActual || '$0');
+          const sueldoB = parsearMonto(b.sueldoActual || '$0');
+          return sueldoB - sueldoA;
+        });
+
+        const totalRegistros = filteredData.length;
+
+        if (fetchAll) {
+          return {
+            success: true,
+            data: filteredData.map(person => ({
+              nombre: person.nombre,
+              professorId: person.professorId,
+              sueldoActual: person.sueldoActual,
+              sujetoObligado: person.sujetoObligado,
+              entidadFederativa: person.entidadFederativa,
+              matchExacto: false
+            })),
+            paginador: {
+              numeroPaginas: 1,
+              cantidadPagina: totalRegistros,
+              total: totalRegistros,
+              paginaActual: 0,
+              cantidadElementos: totalRegistros,
+              hasMore: false
+            }
+          };
+        }
+
+        const totalPaginas = Math.ceil(totalRegistros / cantidadPorPagina);
+        const inicio = numeroPagina * cantidadPorPagina;
+        const fin = inicio + cantidadPorPagina;
+        const datosPaginados = filteredData.slice(inicio, fin);
+
+        return {
+          success: true,
+          data: datosPaginados.map(person => ({
+            nombre: person.nombre,
+            professorId: person.professorId,
+            sueldoActual: person.sueldoActual,
+            sujetoObligado: person.sujetoObligado,
+            entidadFederativa: person.entidadFederativa,
+            matchExacto: false
+          })),
+          paginador: {
+            numeroPaginas: totalPaginas,
+            cantidadPagina: cantidadPorPagina,
+            total: totalRegistros,
+            paginaActual: numeroPagina,
+            cantidadElementos: datosPaginados.length,
+            hasMore: hasMore,
+            // Datos reales del servidor de Transparencia
+            totalEnServidor: totalRealServidor,
+            paginasEnServidor: totalPaginas
+          }
+        };
+      }
+
+      return {
+        success: true,
+        data: [],
+        paginador: {
+          numeroPaginas: 0,
+          cantidadPagina: cantidadPorPagina,
+          total: 0,
+          paginaActual: 0,
+          cantidadElementos: 0,
+          hasMore: false
+        }
+      };
+    }
+
+    // Consulta 1: Búsqueda específica con jsonAtributos (match exacto de apellidos)
+    const jsonAtributos = buildJsonAtributosApellidos(apellidoPaterno, apellidoMaterno);
+    const primeraConsultaEspecifica = await consultarTransparencia(targetUrl, {
+      jsonAtributos,
+      cantidad: 200,
+      numeroPagina: 0
     });
 
-    const text = await upstream.text();
-    const data = JSON.parse(text);
+    // Traer páginas de la consulta específica según el límite
+    let datosEspecificos = [];
+    let totalPaginasEspecificas = 0;
+    let paginasTraidasEspecificas = 0;
+    let totalRealEspecifico = 0;
+    if (primeraConsultaEspecifica.success && primeraConsultaEspecifica.data.length > 0) {
+      datosEspecificos = [...primeraConsultaEspecifica.data];
+      const paginasEspecificas = primeraConsultaEspecifica.paginador?.numeroPaginas || 1;
+      totalPaginasEspecificas = paginasEspecificas;
+      totalRealEspecifico = primeraConsultaEspecifica.paginador?.total || 0;
 
-    if (data.paylod && data.paylod.datosSolr && Array.isArray(data.paylod.datosSolr)) {
+      // Calcular cuántas páginas traer según el límite
+      const paginasNecesarias = maxRecords > 0 ? Math.ceil(maxRecords / 200) : paginasEspecificas;
+      const paginasATraer = Math.min(paginasNecesarias, paginasEspecificas);
+      paginasTraidasEspecificas = paginasATraer;
+
+      if (paginasATraer > 1) {
+        console.log(`[${timestamp}] 🔄 Consulta específica: trayendo ${paginasATraer - 1} páginas adicionales (límite: ${maxRecords})...`);
+        const promesas = [];
+        for (let i = 1; i < paginasATraer; i++) {
+          promesas.push(
+            consultarTransparencia(targetUrl, {
+              jsonAtributos,
+              cantidad: 200,
+              numeroPagina: i
+            })
+          );
+        }
+        const resultados = await Promise.all(promesas);
+        resultados.forEach(r => {
+          if (r.success && r.data.length > 0) {
+            datosEspecificos.push(...r.data);
+          }
+        });
+      }
+    }
+
+    // Consulta 2: Búsqueda general con texto plano (más resultados)
+    const busquedaTexto = apellidoMaterno
+      ? `${apellidoPaterno} ${apellidoMaterno}`
+      : apellidoPaterno;
+
+    const primeraConsultaGeneral = await consultarTransparencia(targetUrl, {
+      contenido: busquedaTexto,
+      cantidad: 200,
+      numeroPagina: 0
+    });
+
+    // Traer páginas de la consulta general según el límite
+    let datosGenerales = [];
+    let totalPaginasGenerales = 0;
+    let paginasTraidasGenerales = 0;
+    let totalRealGeneral = 0;
+    if (primeraConsultaGeneral.success && primeraConsultaGeneral.data.length > 0) {
+      datosGenerales = [...primeraConsultaGeneral.data];
+      const paginasGenerales = primeraConsultaGeneral.paginador?.numeroPaginas || 1;
+      totalPaginasGenerales = paginasGenerales;
+      totalRealGeneral = primeraConsultaGeneral.paginador?.total || 0;
+
+      // Calcular cuántas páginas traer según el límite
+      const paginasNecesarias = maxRecords > 0 ? Math.ceil(maxRecords / 200) : paginasGenerales;
+      const paginasATraer = Math.min(paginasNecesarias, paginasGenerales);
+      paginasTraidasGenerales = paginasATraer;
+
+      if (paginasATraer > 1) {
+        console.log(`[${timestamp}] 🔄 Consulta general: trayendo ${paginasATraer - 1} páginas adicionales (límite: ${maxRecords})...`);
+        const promesas = [];
+        for (let i = 1; i < paginasATraer; i++) {
+          promesas.push(
+            consultarTransparencia(targetUrl, {
+              contenido: busquedaTexto,
+              cantidad: 200,
+              numeroPagina: i
+            })
+          );
+        }
+        const resultados = await Promise.all(promesas);
+        resultados.forEach(r => {
+          if (r.success && r.data.length > 0) {
+            datosGenerales.push(...r.data);
+          }
+        });
+      }
+    }
+
+    console.log(`[${timestamp}] 📊 Total traído: ${datosEspecificos.length} específicos, ${datosGenerales.length} generales`);
+
+    // Determinar si hay más datos de los que trajimos
+    const hasMore = (paginasTraidasEspecificas < totalPaginasEspecificas) || (paginasTraidasGenerales < totalPaginasGenerales);
+
+    // Combinar resultados
+    const todosLosDatos = [];
+    const idsUnicos = new Set();
+
+    // Agregar resultados específicos primero (match exacto)
+    datosEspecificos.forEach(item => {
+      if (!idsUnicos.has(item.id)) {
+        todosLosDatos.push({ ...item, matchExacto: true });
+        idsUnicos.add(item.id);
+      }
+    });
+
+    // Agregar resultados generales (match parcial)
+    datosGenerales.forEach(item => {
+      if (!idsUnicos.has(item.id)) {
+        todosLosDatos.push({ ...item, matchExacto: false });
+        idsUnicos.add(item.id);
+      }
+    });
+
+    if (todosLosDatos.length > 0) {
       // Filtrar datos por nombres únicos
-      let filteredData = filterByUniqueName(data.paylod.datosSolr);
+      let filteredData = filterByUniqueName(todosLosDatos);
 
       // Excluir al profesor actual
       filteredData = filteredData.filter(person => person.professorId !== excludeProfessorId);
 
-      // Ordenar por sueldo actual de mayor a menor
+      // Ordenar: primero match exacto, luego por sueldo
       filteredData.sort((a, b) => {
+        // Priorizar match exacto
+        if (a.matchExacto && !b.matchExacto) return -1;
+        if (!a.matchExacto && b.matchExacto) return 1;
+
+        // Si ambos tienen el mismo tipo de match, ordenar por sueldo
         const sueldoA = parsearMonto(a.sueldoActual || '$0');
         const sueldoB = parsearMonto(b.sueldoActual || '$0');
         return sueldoB - sueldoA;
       });
 
-      // Limitar a 10 resultados
-      filteredData = filteredData.slice(0, 10);
+      // Si fetchAll=true, retornar todos los datos sin paginación
+      const totalRegistros = filteredData.length;
 
-      console.log(`[${timestamp}] ✅ Encontrados ${filteredData.length} personas con apellidos similares`);
+      if (fetchAll) {
+        console.log(`[${timestamp}] 🚀 Retornando TODOS los ${totalRegistros} registros (sin paginación)`);
+        return {
+          success: true,
+          data: filteredData.map(person => ({
+            nombre: person.nombre,
+            professorId: person.professorId,
+            sueldoActual: person.sueldoActual,
+            sujetoObligado: person.sujetoObligado,
+            entidadFederativa: person.entidadFederativa,
+            matchExacto: person.matchExacto || false
+          })),
+          paginador: {
+            numeroPaginas: 1,
+            cantidadPagina: totalRegistros,
+            total: totalRegistros,
+            paginaActual: 0,
+            cantidadElementos: totalRegistros,
+            hasMore: false
+          }
+        };
+      }
+
+      // Implementar paginación local sobre el conjunto combinado
+      const totalPaginas = Math.ceil(totalRegistros / cantidadPorPagina);
+      const inicio = numeroPagina * cantidadPorPagina;
+      const fin = inicio + cantidadPorPagina;
+      const datosPaginados = filteredData.slice(inicio, fin);
+
+      console.log(`[${timestamp}] ✅ Encontrados ${totalRegistros} personas con apellidos similares (${filteredData.filter(p => p.matchExacto).length} exactos) - Página ${numeroPagina + 1}/${totalPaginas}`);
+      console.log(`[${timestamp}] 🔍 Hay más datos en servidor: ${hasMore ? 'SÍ' : 'NO'}`);
 
       return {
         success: true,
-        data: filteredData.map(person => ({
+        data: datosPaginados.map(person => ({
           nombre: person.nombre,
           professorId: person.professorId,
           sueldoActual: person.sueldoActual,
           sujetoObligado: person.sujetoObligado,
-          entidadFederativa: person.entidadFederativa
-        }))
+          entidadFederativa: person.entidadFederativa,
+          matchExacto: person.matchExacto || false
+        })),
+        paginador: {
+          numeroPaginas: totalPaginas,
+          cantidadPagina: cantidadPorPagina,
+          total: totalRegistros,
+          paginaActual: numeroPagina,
+          cantidadElementos: datosPaginados.length,
+          hasMore: hasMore,
+          // Datos reales del servidor de Transparencia
+          totalEnServidor: Math.max(totalRealEspecifico, totalRealGeneral),
+          paginasEnServidor: Math.max(totalPaginasEspecificas, totalPaginasGenerales)
+        }
       };
     }
 
-    return { success: true, data: [] };
+    return {
+      success: true,
+      data: [],
+      paginador: {
+        numeroPaginas: 0,
+        cantidadPagina: cantidadPorPagina,
+        total: 0,
+        paginaActual: 0,
+        cantidadElementos: 0
+      }
+    };
   } catch (error) {
     console.error(`[${timestamp}] ❌ Error al buscar por apellido:`, error);
     throw error;
@@ -350,84 +636,123 @@ export async function buscarPorApellido(apellidoPaterno, apellidoMaterno, target
 }
 
 /**
- * Busca personas de la misma institución
+ * Busca personas de la misma institución con paginación
+ * @param {string} identificadorGrupo - ID del grupo de la institución
+ * @param {string} idEntidadFederativa - ID de la entidad federativa
+ * @param {string} sujetoObligado - Nombre del sujeto obligado
+ * @param {string} targetUrl - URL del endpoint
+ * @param {string} excludeProfessorId - ID del profesor a excluir
+ * @param {number} numeroPagina - Número de página (0-indexed)
+ * @param {boolean} fetchAll - Si true, retorna todos los datos sin paginación
+ * @param {number} maxRecords - Límite máximo de registros a traer de Transparencia (0 = sin límite, default 5000)
+ * @param {string} searchText - Texto de búsqueda para filtrar por nombre (opcional)
+ * @returns {Promise<{success: boolean, data: Array, paginador: Object}>}
  */
-export async function buscarPorInstitucion(identificadorGrupo, idEntidadFederativa, sujetoObligado, targetUrl, excludeProfessorId) {
+export async function buscarPorInstitucion(identificadorGrupo, idEntidadFederativa, sujetoObligado, targetUrl, excludeProfessorId, numeroPagina = 0, fetchAll = false, maxRecords = 5000, searchText = '') {
   const timestamp = new Date().toISOString();
+  const cantidadPorPagina = 10;
+
   console.log(`[${timestamp}] 🏛️ Buscando por institución: ${sujetoObligado.substring(0, 50)}...`);
   console.log(`[${timestamp}] 📋 ID Grupo: ${identificadorGrupo}`);
   console.log(`[${timestamp}] 📋 ID Entidad: ${idEntidadFederativa || 'No proporcionado'}`);
+  console.log(`[${timestamp}] 📄 Página solicitada: ${numeroPagina}`);
+  console.log(`[${timestamp}] 🎯 Límite de registros: ${maxRecords}`);
+  console.log(`[${timestamp}] 🔍 Texto de búsqueda: ${searchText || 'ninguno'}`);
 
   try {
-    const jsonAtributos = {
-      idSujetoObligado: {
-        id: identificadorGrupo,
-        nombre: sujetoObligado
-      },
-      nombre: "",
-      primerApellido: "",
-      segundoApellido: "",
-      denominacionCargo: "",
-      montoNetoRangoInicial: null,
-      montoNetoRangoFinal: null
+    const { consultarTransparencia, buildJsonAtributosInstitucion } = await import('./transparenciaClient.js');
+
+    // Construir jsonAtributos con la institución
+    const jsonAtributos = buildJsonAtributosInstitucion(identificadorGrupo, sujetoObligado, idEntidadFederativa);
+
+    // Preparar parámetros de búsqueda
+    const searchParams = {
+      jsonAtributos,
+      cantidad: 200,
+      numeroPagina: 0
     };
 
-    // Agregar idEntidadFederativa solo si se proporciona
-    if (idEntidadFederativa) {
-      jsonAtributos.idEntidadFederativa = idEntidadFederativa;
+    // Si hay texto de búsqueda, agregarlo como contenido
+    if (searchText && searchText.trim()) {
+      searchParams.contenido = searchText.trim();
     }
 
-    const requestBody = {
-      contenido: "",
-      cantidad: 100,
-      numeroPagina: 0,
-      coleccion: "SUELDOS",
-      dePaginador: false,
-      idCompartido: "",
-      filtroSeleccionado: "",
-      tipoOrdenamiento: "COINCIDENCIA",
-      sujetosObligados: { seleccion: [], descartado: [] },
-      organosGarantes: { seleccion: [], descartado: [] },
-      anioFechaInicio: { seleccion: [], descartado: [] },
-      jsonAtributos
-    };
+    // Primera consulta para obtener el total y la primera página
+    const primeraConsulta = await consultarTransparencia(targetUrl, searchParams);
 
-    console.log(`[${timestamp}] 📤 JSON enviado a API de transparencia:`);
-    console.log(JSON.stringify(requestBody, null, 2));
+    if (!primeraConsulta.success) {
+      return {
+        success: true,
+        data: [],
+        paginador: {
+          numeroPaginas: 0,
+          cantidadPagina: cantidadPorPagina,
+          total: 0,
+          paginaActual: numeroPagina,
+          cantidadElementos: 0
+        }
+      };
+    }
 
-    const upstream = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "accept": "application/json, text/plain, */*",
-        "content-type": "application/json",
-        "origin": "https://tematicos.plataformadetransparencia.org.mx",
-        "referer": "https://tematicos.plataformadetransparencia.org.mx/"
-      },
-      body: JSON.stringify(requestBody),
-    });
+    const totalEnServidor = primeraConsulta.paginador?.total || primeraConsulta.data.length;
+    const paginasEnServidor = primeraConsulta.paginador?.numeroPaginas || 1;
+    let todosLosDatos = [...primeraConsulta.data];
 
-    const text = await upstream.text();
-    const data = JSON.parse(text);
+    console.log(`[${timestamp}] 📊 Total en servidor: ${totalEnServidor}, Páginas: ${paginasEnServidor}`);
 
-    if (data.paylod && data.paylod.datosSolr && Array.isArray(data.paylod.datosSolr)) {
-      // Filtrar datos por nombres únicos
-      let filteredData = filterByUniqueName(data.paylod.datosSolr);
+    // Calcular cuántas páginas traer según el límite maxRecords
+    const paginasNecesarias = maxRecords > 0 ? Math.ceil(maxRecords / 200) : paginasEnServidor;
+    const paginasATraer = Math.min(paginasNecesarias, paginasEnServidor);
 
-      // Excluir al profesor actual
-      filteredData = filteredData.filter(person => person.professorId !== excludeProfessorId);
+    // Si hay más páginas en el servidor, traerlas según el límite
+    if (paginasATraer > 1) {
+      console.log(`[${timestamp}] 🔄 Trayendo ${paginasATraer - 1} páginas adicionales (límite: ${maxRecords} registros)...`);
 
-      // Ordenar por sueldo actual de mayor a menor
-      filteredData.sort((a, b) => {
-        const sueldoA = parsearMonto(a.sueldoActual || '$0');
-        const sueldoB = parsearMonto(b.sueldoActual || '$0');
-        return sueldoB - sueldoA;
+      const promesas = [];
+      for (let i = 1; i < paginasATraer; i++) {
+        const params = {
+          jsonAtributos,
+          cantidad: 200,
+          numeroPagina: i
+        };
+        // Agregar texto de búsqueda si existe
+        if (searchText && searchText.trim()) {
+          params.contenido = searchText.trim();
+        }
+        promesas.push(consultarTransparencia(targetUrl, params));
+      }
+
+      const resultadosAdicionales = await Promise.all(promesas);
+      resultadosAdicionales.forEach(resultado => {
+        if (resultado.success && resultado.data.length > 0) {
+          todosLosDatos.push(...resultado.data);
+        }
       });
 
-      // Limitar a 10 resultados
-      filteredData = filteredData.slice(0, 10);
+      console.log(`[${timestamp}] ✅ Total datos traídos: ${todosLosDatos.length} (límite aplicado)`);
+    }
 
-      console.log(`[${timestamp}] ✅ Encontrados ${filteredData.length} personas de la misma institución`);
+    // Filtrar datos por nombres únicos
+    let filteredData = filterByUniqueName(todosLosDatos);
 
+    // Excluir al profesor actual
+    filteredData = filteredData.filter(person => person.professorId !== excludeProfessorId);
+
+    // Ordenar por sueldo actual de mayor a menor
+    filteredData.sort((a, b) => {
+      const sueldoA = parsearMonto(a.sueldoActual || '$0');
+      const sueldoB = parsearMonto(b.sueldoActual || '$0');
+      return sueldoB - sueldoA;
+    });
+
+    // Determinar si hay más datos en el servidor de los que trajimos
+    const hasMore = paginasATraer < paginasEnServidor;
+
+    // Si fetchAll=true, retornar todos los datos sin paginación
+    const totalRegistros = filteredData.length;
+
+    if (fetchAll) {
+      console.log(`[${timestamp}] 🚀 Retornando TODOS los ${totalRegistros} registros (sin paginación)`);
       return {
         success: true,
         data: filteredData.map(person => ({
@@ -436,11 +761,49 @@ export async function buscarPorInstitucion(identificadorGrupo, idEntidadFederati
           sueldoActual: person.sueldoActual,
           sujetoObligado: person.sujetoObligado,
           entidadFederativa: person.entidadFederativa
-        }))
+        })),
+        paginador: {
+          numeroPaginas: 1,
+          cantidadPagina: totalRegistros,
+          total: totalRegistros,
+          paginaActual: 0,
+          cantidadElementos: totalRegistros,
+          hasMore: false
+        }
       };
     }
 
-    return { success: true, data: [] };
+    // Implementar paginación local sobre los resultados filtrados
+    const totalPaginas = Math.ceil(totalRegistros / cantidadPorPagina);
+    const inicio = numeroPagina * cantidadPorPagina;
+    const fin = inicio + cantidadPorPagina;
+    const datosPaginados = filteredData.slice(inicio, fin);
+
+    console.log(`[${timestamp}] ✅ Encontrados ${datosPaginados.length} personas en página ${numeroPagina + 1}/${totalPaginas}`);
+    console.log(`[${timestamp}] 📊 Total de registros filtrados: ${totalRegistros} de ${todosLosDatos.length} originales`);
+    console.log(`[${timestamp}] 🔍 Hay más datos en servidor: ${hasMore ? 'SÍ' : 'NO'}`);
+
+    return {
+      success: true,
+      data: datosPaginados.map(person => ({
+        nombre: person.nombre,
+        professorId: person.professorId,
+        sueldoActual: person.sueldoActual,
+        sujetoObligado: person.sujetoObligado,
+        entidadFederativa: person.entidadFederativa
+      })),
+      paginador: {
+        numeroPaginas: totalPaginas,
+        cantidadPagina: cantidadPorPagina,
+        total: totalRegistros,
+        paginaActual: numeroPagina,
+        cantidadElementos: datosPaginados.length,
+        hasMore: hasMore,
+        // Datos reales del servidor de Transparencia
+        totalEnServidor: totalEnServidor,
+        paginasEnServidor: paginasEnServidor
+      }
+    };
   } catch (error) {
     console.error(`[${timestamp}] ❌ Error al buscar por institución:`, error);
     throw error;
